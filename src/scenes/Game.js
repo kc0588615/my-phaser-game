@@ -29,7 +29,6 @@ export class Game extends Phaser.Scene {
     create() {
         // Initialize game variables
         this.backendPuzzle = new BackendPuzzle(this.GRID_SIZE.cols, this.GRID_SIZE.rows);
-        this.gemsSprites = []; // 2D array [x][y] = sprite
 
         // Create the board
         this.createBoard();
@@ -41,6 +40,19 @@ export class Game extends Phaser.Scene {
 
         this.isDragging = false;
         this.canMove = true;
+
+        // For real-time dragging
+        this.draggingSprites = [];
+        this.dragDirection = null;
+        this.dragStartPointerX = 0;
+        this.dragStartPointerY = 0;
+        this.dragStartX = 0;
+        this.dragStartY = 0;
+        this.dragStartPositions = [];
+        this.dragCurrentPositions = [];
+
+        // For wrapping around
+        this.wrapOffset = 0;
     }
 
     loadAssets() {
@@ -53,6 +65,8 @@ export class Game extends Phaser.Scene {
     }
 
     createBoard() {
+        this.gemsSprites = []; // 2D array [x][y] = sprite
+
         for (let x = 0; x < this.GRID_SIZE.cols; x++) {
             this.gemsSprites[x] = [];
             for (let y = 0; y < this.GRID_SIZE.rows; y++) {
@@ -64,6 +78,7 @@ export class Game extends Phaser.Scene {
 
                 const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
                 sprite.setInteractive();
+                this.input.setDraggable(sprite); // Make the sprite draggable if needed
 
                 // Store grid coordinates
                 sprite.gridX = x;
@@ -90,6 +105,13 @@ export class Game extends Phaser.Scene {
             this.dragDirection = null;
             this.dragStartPointerX = pointer.x;
             this.dragStartPointerY = pointer.y;
+
+            // Store initial positions of the sprites in the row or column
+            this.dragStartPositions = [];
+            this.draggingSprites = [];
+
+            // Decide if we're moving a row or a column based on the initial drag
+            // For now, we wait until onPointerMove to determine direction
         }
     }
 
@@ -99,14 +121,63 @@ export class Game extends Phaser.Scene {
             const deltaY = pointer.y - this.dragStartPointerY;
 
             if (this.dragDirection === null) {
-                if (Math.abs(deltaX) > 10) {
+                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 5) {
                     this.dragDirection = 'row';
-                } else if (Math.abs(deltaY) > 10) {
+
+                    // Prepare sprites in the row
+                    const y = this.dragStartY;
+                    for (let x = 0; x < this.GRID_SIZE.cols; x++) {
+                        const sprite = this.gemsSprites[x][y];
+                        this.draggingSprites.push(sprite);
+                        this.dragStartPositions.push(sprite.x);
+                    }
+                } else if (Math.abs(deltaY) > 5) {
                     this.dragDirection = 'col';
+
+                    // Prepare sprites in the column
+                    const x = this.dragStartX;
+                    for (let y = 0; y < this.GRID_SIZE.rows; y++) {
+                        const sprite = this.gemsSprites[x][y];
+                        this.draggingSprites.push(sprite);
+                        this.dragStartPositions.push(sprite.y);
+                    }
                 }
             }
 
-            // For visual feedback, you could shift the gems accordingly here
+            if (this.dragDirection === 'row') {
+                // Move the sprites horizontally based on drag
+                const newPositions = [];
+                for (let i = 0; i < this.draggingSprites.length; i++) {
+                    let newX = this.dragStartPositions[i] + deltaX;
+                    // Handle wrapping
+                    const totalWidth = this.GRID_SIZE.cols * this.GEM_SIZE;
+                    if (newX < this.BOARD_OFFSET.x) {
+                        newX += totalWidth;
+                    } else if (newX >= this.BOARD_OFFSET.x + totalWidth) {
+                        newX -= totalWidth;
+                    }
+                    this.draggingSprites[i].x = newX;
+                    newPositions.push(newX);
+                }
+                this.dragCurrentPositions = newPositions;
+
+            } else if (this.dragDirection === 'col') {
+                // Move the sprites vertically based on drag
+                const newPositions = [];
+                for (let i = 0; i < this.draggingSprites.length; i++) {
+                    let newY = this.dragStartPositions[i] + deltaY;
+                    // Handle wrapping
+                    const totalHeight = this.GRID_SIZE.rows * this.GEM_SIZE;
+                    if (newY < this.BOARD_OFFSET.y) {
+                        newY += totalHeight;
+                    } else if (newY >= this.BOARD_OFFSET.y + totalHeight) {
+                        newY -= totalHeight;
+                    }
+                    this.draggingSprites[i].y = newY;
+                    newPositions.push(newY);
+                }
+                this.dragCurrentPositions = newPositions;
+            }
         }
     }
 
@@ -132,10 +203,16 @@ export class Game extends Phaser.Scene {
             if (moveAction) {
                 this.canMove = false;
                 this.applyMove(moveAction);
+            } else {
+                // No move, snap back to original positions
+                this.snapBack();
             }
 
             this.isDragging = false;
             this.dragDirection = null;
+            this.draggingSprites = [];
+            this.dragStartPositions = [];
+            this.dragCurrentPositions = [];
         }
     }
 
@@ -169,6 +246,15 @@ export class Game extends Phaser.Scene {
             for (let x = 0; x < this.GRID_SIZE.cols; x++) {
                 this.gemsSprites[x][y] = newRowSprites[x];
                 this.gemsSprites[x][y].gridX = x;
+
+                // Tween to snapped position
+                const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
+                this.tweens.add({
+                    targets: this.gemsSprites[x][y],
+                    x: xPos,
+                    duration: 200,
+                    ease: 'Quad.easeOut'
+                });
             }
         } else if (moveAction.rowOrCol === 'col') {
             const x = moveAction.index;
@@ -178,20 +264,50 @@ export class Game extends Phaser.Scene {
             this.gemsSprites[x] = newColSprites;
             for (let y = 0; y < this.GRID_SIZE.rows; y++) {
                 this.gemsSprites[x][y].gridY = y;
+
+                // Tween to snapped position
+                const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+                this.tweens.add({
+                    targets: this.gemsSprites[x][y],
+                    y: yPos,
+                    duration: 200,
+                    ease: 'Quad.easeOut'
+                });
             }
         }
+    }
 
-        // Tween the sprites to their new positions
-        for (let x = 0; x < this.GRID_SIZE.cols; x++) {
-            for (let y = 0; y < this.GRID_SIZE.rows; y++) {
-                const sprite = this.gemsSprites[x][y];
-                const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+    snapBack() {
+        // Tween the dragging sprites back to their original positions
+        for (let i = 0; i < this.draggingSprites.length; i++) {
+            const sprite = this.draggingSprites[i];
+            const startPosition = this.dragCurrentPositions[i];
+
+            if (this.dragDirection === 'row') {
+                const xPos = this.dragStartPositions[i];
+                let delta = xPos - startPosition;
+                // Handle wrapping
+                if (Math.abs(delta) > (this.GRID_SIZE.cols * this.GEM_SIZE) / 2) {
+                    delta = delta > 0 ? delta - this.GRID_SIZE.cols * this.GEM_SIZE : delta + this.GRID_SIZE.cols * this.GEM_SIZE;
+                }
                 this.tweens.add({
                     targets: sprite,
                     x: xPos,
+                    duration: 200,
+                    ease: 'Quad.easeOut'
+                });
+            } else if (this.dragDirection === 'col') {
+                const yPos = this.dragStartPositions[i];
+                let delta = yPos - startPosition;
+                // Handle wrapping
+                if (Math.abs(delta) > (this.GRID_SIZE.rows * this.GEM_SIZE) / 2) {
+                    delta = delta > 0 ? delta - this.GRID_SIZE.rows * this.GEM_SIZE : delta + this.GRID_SIZE.rows * this.GEM_SIZE;
+                }
+                this.tweens.add({
+                    targets: sprite,
                     y: yPos,
-                    duration: 200
+                    duration: 200,
+                    ease: 'Quad.easeOut'
                 });
             }
         }
