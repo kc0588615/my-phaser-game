@@ -80,14 +80,16 @@ export class Game extends Phaser.Scene {
                 sprite.setInteractive();
                 this.input.setDraggable(sprite); // Make the sprite draggable if needed
 
-                // Store grid coordinates
+                // Store grid coordinates and gem type using setData
                 sprite.gridX = x;
                 sprite.gridY = y;
+                sprite.setData('gemType', gemType);
 
                 this.gemsSprites[x][y] = sprite;
             }
         }
     }
+
 
     onPointerDown(pointer) {
         if (!this.canMove) return;
@@ -123,56 +125,96 @@ export class Game extends Phaser.Scene {
             if (this.dragDirection === null) {
                 if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 5) {
                     this.dragDirection = 'row';
-
-                    // Prepare sprites in the row
                     const y = this.dragStartY;
+                    
+                    // Store initial positions and grid coordinates
                     for (let x = 0; x < this.GRID_SIZE.cols; x++) {
                         const sprite = this.gemsSprites[x][y];
                         this.draggingSprites.push(sprite);
-                        this.dragStartPositions.push(sprite.x);
+                        // Store both the initial position and grid coordinate
+                        this.dragStartPositions.push({
+                            x: sprite.x,
+                            gridX: x
+                        });
                     }
                 } else if (Math.abs(deltaY) > 5) {
                     this.dragDirection = 'col';
-
-                    // Prepare sprites in the column
                     const x = this.dragStartX;
+                    
                     for (let y = 0; y < this.GRID_SIZE.rows; y++) {
                         const sprite = this.gemsSprites[x][y];
                         this.draggingSprites.push(sprite);
-                        this.dragStartPositions.push(sprite.y);
+                        this.dragStartPositions.push({
+                            y: sprite.y,
+                            gridY: y
+                        });
                     }
                 }
             }
 
             if (this.dragDirection === 'row') {
-                // Move the sprites horizontally based on drag
+                const totalWidth = this.GRID_SIZE.cols * this.GEM_SIZE;
                 const newPositions = [];
+                
+                // Calculate total grid movement
+                let rawGridOffset = deltaX / this.GEM_SIZE;
+                let gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ? 
+                    Math.round(rawGridOffset) : 
+                    Math.floor(rawGridOffset);
+                
+                // Calculate how many complete wraps have occurred
+                let completeWraps = Math.floor(Math.abs(gridOffset) / this.GRID_SIZE.cols);
+                let effectiveOffset = gridOffset % this.GRID_SIZE.cols;
+                
+                // Get the remainder for smooth movement
+                let remainder = deltaX - (gridOffset * this.GEM_SIZE);
+                
                 for (let i = 0; i < this.draggingSprites.length; i++) {
-                    let newX = this.dragStartPositions[i] + deltaX;
-                    // Handle wrapping
-                    const totalWidth = this.GRID_SIZE.cols * this.GEM_SIZE;
-                    if (newX < this.BOARD_OFFSET.x) {
-                        newX += totalWidth;
-                    } else if (newX >= this.BOARD_OFFSET.x + totalWidth) {
-                        newX -= totalWidth;
-                    }
+                    const startPos = this.dragStartPositions[i];
+                    
+                    // Calculate new grid position including wraps
+                    let newGridX = startPos.gridX + effectiveOffset;
+                    if (newGridX < 0) newGridX += this.GRID_SIZE.cols;
+                    newGridX = newGridX % this.GRID_SIZE.cols;
+                    
+                    // Calculate screen position
+                    let baseX = this.BOARD_OFFSET.x + (newGridX * this.GEM_SIZE) + this.GEM_SIZE / 2;
+                    let newX = baseX + remainder;
+                    
                     this.draggingSprites[i].x = newX;
                     newPositions.push(newX);
                 }
                 this.dragCurrentPositions = newPositions;
 
             } else if (this.dragDirection === 'col') {
-                // Move the sprites vertically based on drag
+                const totalHeight = this.GRID_SIZE.rows * this.GEM_SIZE;
                 const newPositions = [];
+                
+                // Calculate total grid movement
+                let rawGridOffset = deltaY / this.GEM_SIZE;
+                let gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ? 
+                    Math.round(rawGridOffset) : 
+                    Math.floor(rawGridOffset);
+                
+                // Calculate how many complete wraps have occurred
+                let completeWraps = Math.floor(Math.abs(gridOffset) / this.GRID_SIZE.rows);
+                let effectiveOffset = gridOffset % this.GRID_SIZE.rows;
+                
+                // Get the remainder for smooth movement
+                let remainder = deltaY - (gridOffset * this.GEM_SIZE);
+                
                 for (let i = 0; i < this.draggingSprites.length; i++) {
-                    let newY = this.dragStartPositions[i] + deltaY;
-                    // Handle wrapping
-                    const totalHeight = this.GRID_SIZE.rows * this.GEM_SIZE;
-                    if (newY < this.BOARD_OFFSET.y) {
-                        newY += totalHeight;
-                    } else if (newY >= this.BOARD_OFFSET.y + totalHeight) {
-                        newY -= totalHeight;
-                    }
+                    const startPos = this.dragStartPositions[i];
+                    
+                    // Calculate new grid position including wraps
+                    let newGridY = startPos.gridY + effectiveOffset;
+                    if (newGridY < 0) newGridY += this.GRID_SIZE.rows;
+                    newGridY = newGridY % this.GRID_SIZE.rows;
+                    
+                    // Calculate screen position
+                    let baseY = this.BOARD_OFFSET.y + (newGridY * this.GEM_SIZE) + this.GEM_SIZE / 2;
+                    let newY = baseY + remainder;
+                    
                     this.draggingSprites[i].y = newY;
                     newPositions.push(newY);
                 }
@@ -220,59 +262,58 @@ export class Game extends Phaser.Scene {
         // Apply the move to the backend puzzle
         const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([moveAction]);
 
-        // Update the frontend gems accordingly
-        this.updateGemsAfterMove(moveAction);
-
-        // Handle matches
+        // **Corrected Order:** Update frontend *after* backend processing
         this.time.delayedCall(300, () => {
             if (!explodeAndReplacePhase.isNothingToDo()) {
                 this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements);
             } else {
                 this.canMove = true;
+                this.updateGemsFromPuzzleState(); // Synchronize frontend after move (no matches)
             }
         });
     }
 
-    updateGemsAfterMove(moveAction) {
-        // Update the gemsSprites to reflect the move
-        if (moveAction.rowOrCol === 'row') {
-            const y = moveAction.index;
-            const amount = ((moveAction.amount % this.GRID_SIZE.cols) + this.GRID_SIZE.cols) % this.GRID_SIZE.cols;
-            const rowSprites = [];
-            for (let x = 0; x < this.GRID_SIZE.cols; x++) {
-                rowSprites.push(this.gemsSprites[x][y]);
-            }
-            const newRowSprites = rowSprites.slice(-amount).concat(rowSprites.slice(0, -amount));
-            for (let x = 0; x < this.GRID_SIZE.cols; x++) {
-                this.gemsSprites[x][y] = newRowSprites[x];
-                this.gemsSprites[x][y].gridX = x;
 
-                // Tween to snapped position
-                const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                this.tweens.add({
-                    targets: this.gemsSprites[x][y],
-                    x: xPos,
-                    duration: 200,
-                    ease: 'Quad.easeOut'
-                });
-            }
-        } else if (moveAction.rowOrCol === 'col') {
-            const x = moveAction.index;
-            const amount = ((moveAction.amount % this.GRID_SIZE.rows) + this.GRID_SIZE.rows) % this.GRID_SIZE.rows;
-            const colSprites = this.gemsSprites[x];
-            const newColSprites = colSprites.slice(amount).concat(colSprites.slice(0, amount));
-            this.gemsSprites[x] = newColSprites;
+    updateGemsFromPuzzleState() {
+        for (let x = 0; x < this.GRID_SIZE.cols; x++) {
             for (let y = 0; y < this.GRID_SIZE.rows; y++) {
-                this.gemsSprites[x][y].gridY = y;
+                const gemData = this.backendPuzzle.puzzleState[x][y];
+                let sprite = this.gemsSprites[x][y];
 
-                // Tween to snapped position
-                const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
-                this.tweens.add({
-                    targets: this.gemsSprites[x][y],
-                    y: yPos,
-                    duration: 200,
-                    ease: 'Quad.easeOut'
-                });
+                if (sprite) {
+                    // Update the sprite's texture if the gem type has changed
+                    if (sprite.getData('gemType') !== gemData.gemType) {
+                        sprite.setTexture(`${gemData.gemType}_gem_${0}`);
+                        sprite.setData('gemType', gemData.gemType);
+                    }
+
+                    // Update position
+                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    sprite.gridX = x;
+                    sprite.gridY = y;
+
+                    if (sprite.x !== xPos || sprite.y !== yPos) {
+                        this.tweens.add({
+                            targets: sprite,
+                            x: xPos,
+                            y: yPos,
+                            duration: 200,
+                            ease: 'Quad.easeOut'
+                        });
+                    }
+                } else if (gemData) {
+                    // Create a new sprite if one doesn't exist and there's a gem in puzzleState
+                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    sprite = this.add.sprite(xPos, yPos, `${gemData.gemType}_gem_${0}`);
+                    sprite.setInteractive();
+                    this.input.setDraggable(sprite);
+                    sprite.gridX = x;
+                    sprite.gridY = y;
+                    sprite.setData('gemType', gemData.gemType);
+                    this.gemsSprites[x][y] = sprite;
+                }
             }
         }
     }
@@ -284,7 +325,7 @@ export class Game extends Phaser.Scene {
             const startPosition = this.dragCurrentPositions[i];
 
             if (this.dragDirection === 'row') {
-                const xPos = this.dragStartPositions[i];
+                const xPos = this.dragStartPositions[i].x;
                 let delta = xPos - startPosition;
                 // Handle wrapping
                 if (Math.abs(delta) > (this.GRID_SIZE.cols * this.GEM_SIZE) / 2) {
@@ -297,7 +338,7 @@ export class Game extends Phaser.Scene {
                     ease: 'Quad.easeOut'
                 });
             } else if (this.dragDirection === 'col') {
-                const yPos = this.dragStartPositions[i];
+                const yPos = this.dragStartPositions[i].y;
                 let delta = yPos - startPosition;
                 // Handle wrapping
                 if (Math.abs(delta) > (this.GRID_SIZE.rows * this.GEM_SIZE) / 2) {
@@ -314,78 +355,93 @@ export class Game extends Phaser.Scene {
     }
 
     handleMatches(matches, replacements) {
-        // Remove matched gems
+        // Simple fade out for matched gems
+        const promises = [];
+        
         for (let match of matches) {
             for (let [x, y] of match) {
                 const sprite = this.gemsSprites[x][y];
-                this.tweens.add({
-                    targets: sprite,
-                    alpha: 0,
-                    duration: 200,
-                    onComplete: () => {
-                        sprite.destroy();
-                    }
-                });
-                this.gemsSprites[x][y] = null;
+                if (sprite) {
+                    const tween = this.tweens.add({
+                        targets: sprite,
+                        alpha: 0,
+                        duration: 200,
+                        ease: 'Quad.easeOut',
+                        onComplete: () => {
+                            sprite.destroy();
+                        }
+                    });
+                    promises.push(tween);
+                    this.gemsSprites[x][y] = null;
+                }
             }
         }
 
-        // After destroying matched gems, make gems fall down and add replacements
-        this.time.delayedCall(200, () => {
-            this.makeGemsFall(replacements);
+        // Wait for all fade outs to complete
+        this.tweens.add({
+            targets: {},
+            duration: 250,
+            onComplete: () => {
+                this.makeGemsFall(replacements);
+            }
         });
     }
 
     makeGemsFall(replacements) {
-        // For each column, make gems fall down to fill empty spaces
         for (let x = 0; x < this.GRID_SIZE.cols; x++) {
             const columnSprites = this.gemsSprites[x];
-
-            // Remove nulls (empty spaces), shift gems down
             let newColumnSprites = columnSprites.filter(sprite => sprite !== null);
 
-            // Calculate how many empty spaces
-            const missing = this.GRID_SIZE.rows - newColumnSprites.length;
-
-            // Add new gems at the top
             const replacementsForCol = replacements.find(r => r[0] === x);
             if (replacementsForCol) {
                 const gemTypes = replacementsForCol[1];
                 for (let i = 0; i < gemTypes.length; i++) {
                     const gemType = gemTypes[i];
                     const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    const yPos = this.BOARD_OFFSET.y - (gemTypes.length - i) * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    const yPos = this.BOARD_OFFSET.y - ((i + 1) * this.GEM_SIZE);
                     const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
+                    sprite.setInteractive();
                     sprite.gridX = x;
-                    sprite.gridY = - (gemTypes.length - i);
+                    sprite.gridY = -(gemTypes.length - i);
+                    sprite.setData('gemType', gemType);
                     newColumnSprites.unshift(sprite);
                 }
             }
 
-            // Update gridY for sprites and create fall tweens
+            // Update gridY and create fall tweens
             for (let y = 0; y < newColumnSprites.length; y++) {
                 const sprite = newColumnSprites[y];
                 sprite.gridY = y;
                 const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
                 const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+                
+                const fallDistance = Math.abs(sprite.y - yPos);
+                const duration = Math.min(200 + (fallDistance / this.GEM_SIZE * 30), 400);
+                
                 this.tweens.add({
                     targets: sprite,
                     x: xPos,
                     y: yPos,
-                    duration: 200
+                    duration: duration,
+                    ease: 'Quad.easeIn'
                 });
             }
 
             this.gemsSprites[x] = newColumnSprites;
         }
 
-        // After gems have fallen, check for new matches
-        this.time.delayedCall(300, () => {
-            const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([]);
-            if (!explodeAndReplacePhase.isNothingToDo()) {
-                this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements);
-            } else {
-                this.canMove = true;
+        // Wait for all falls to complete
+        this.tweens.add({
+            targets: {},
+            duration: 450,
+            onComplete: () => {
+                const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([]);
+                if (!explodeAndReplacePhase.isNothingToDo()) {
+                    this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements);
+                } else {
+                    this.canMove = true;
+                    this.updateGemsFromPuzzleState();
+                }
             }
         });
     }
