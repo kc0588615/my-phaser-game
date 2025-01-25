@@ -14,12 +14,9 @@ export class Game extends Phaser.Scene {
             rows: 8
         };
 
+        // Will be set in create() based on screen size
         this.GEM_SIZE = 30;
-
-        this.BOARD_OFFSET = {
-            x: (1024 - (this.GRID_SIZE.cols * this.GEM_SIZE)) / 2,
-            y: (768 - (this.GRID_SIZE.rows * this.GEM_SIZE)) / 2
-        };
+        this.BOARD_OFFSET = { x: 0, y: 0 };
     }
 
     preload() {
@@ -27,13 +24,29 @@ export class Game extends Phaser.Scene {
     }
 
     create() {
+        // Enable multi-touch
+        this.input.addPointer(2);
+        
+        // Prevent default touch behaviors
+        this.game.canvas.addEventListener('touchstart', function (e) {
+            e.preventDefault();
+        }, false);
+
+        // Handle orientation changes
+        this.scale.on('orientationchange', (orientation) => {
+            this.handleOrientationChange(orientation);
+        });
+
+        // Calculate board dimensions based on screen size
+        this.calculateBoardDimensions();
+
         // Initialize game variables
         this.backendPuzzle = new BackendPuzzle(this.GRID_SIZE.cols, this.GRID_SIZE.rows);
 
         // Create the board
         this.createBoard();
 
-        // Set up input handling
+        // Set up input handling with touch support
         this.input.on('pointerdown', this.onPointerDown, this);
         this.input.on('pointermove', this.onPointerMove, this);
         this.input.on('pointerup', this.onPointerUp, this);
@@ -53,6 +66,39 @@ export class Game extends Phaser.Scene {
 
         // For wrapping around
         this.wrapOffset = 0;
+    }
+
+    calculateBoardDimensions() {
+        const width = this.scale.gameSize.width;
+        const height = this.scale.gameSize.height;
+        
+        // Calculate gem size based on screen dimensions and grid
+        const maxGemSizeWidth = Math.floor(width * 0.9 / this.GRID_SIZE.cols);
+        const maxGemSizeHeight = Math.floor(height * 0.9 / this.GRID_SIZE.rows);
+        this.GEM_SIZE = Math.min(maxGemSizeWidth, maxGemSizeHeight);
+
+        // Center the board
+        this.BOARD_OFFSET = {
+            x: (width - (this.GRID_SIZE.cols * this.GEM_SIZE)) / 2,
+            y: (height - (this.GRID_SIZE.rows * this.GEM_SIZE)) / 2
+        };
+    }
+
+    handleOrientationChange(orientation) {
+        // Recalculate board dimensions
+        this.calculateBoardDimensions();
+        
+        // Update all gem positions
+        for (let x = 0; x < this.GRID_SIZE.cols; x++) {
+            for (let y = 0; y < this.GRID_SIZE.rows; y++) {
+                const sprite = this.gemsSprites[x][y];
+                if (sprite) {
+                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+                    sprite.setPosition(xPos, yPos);
+                }
+            }
+        }
     }
 
     loadAssets() {
@@ -78,7 +124,10 @@ export class Game extends Phaser.Scene {
 
                 const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
                 sprite.setInteractive();
-                this.input.setDraggable(sprite); // Make the sprite draggable if needed
+                this.input.setDraggable(sprite);
+
+                // Scale sprite to fit gem size
+                sprite.setDisplaySize(this.GEM_SIZE * 0.9, this.GEM_SIZE * 0.9);
 
                 // Store grid coordinates and gem type using setData
                 sprite.gridX = x;
@@ -90,9 +139,10 @@ export class Game extends Phaser.Scene {
         }
     }
 
-
     onPointerDown(pointer) {
         if (!this.canMove) return;
+        
+        // Handle both mouse and touch input
         const x = pointer.x;
         const y = pointer.y;
 
@@ -111,9 +161,6 @@ export class Game extends Phaser.Scene {
             // Store initial positions of the sprites in the row or column
             this.dragStartPositions = [];
             this.draggingSprites = [];
-
-            // Decide if we're moving a row or a column based on the initial drag
-            // For now, we wait until onPointerMove to determine direction
         }
     }
 
@@ -122,22 +169,23 @@ export class Game extends Phaser.Scene {
             const deltaX = pointer.x - this.dragStartPointerX;
             const deltaY = pointer.y - this.dragStartPointerY;
 
+            // Increase drag threshold for mobile
+            const dragThreshold = 10;
+
             if (this.dragDirection === null) {
-                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > 5) {
+                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > dragThreshold) {
                     this.dragDirection = 'row';
                     const y = this.dragStartY;
                     
-                    // Store initial positions and grid coordinates
                     for (let x = 0; x < this.GRID_SIZE.cols; x++) {
                         const sprite = this.gemsSprites[x][y];
                         this.draggingSprites.push(sprite);
-                        // Store both the initial position and grid coordinate
                         this.dragStartPositions.push({
                             x: sprite.x,
                             gridX: x
                         });
                     }
-                } else if (Math.abs(deltaY) > 5) {
+                } else if (Math.abs(deltaY) > dragThreshold) {
                     this.dragDirection = 'col';
                     const x = this.dragStartX;
                     
@@ -156,28 +204,23 @@ export class Game extends Phaser.Scene {
                 const totalWidth = this.GRID_SIZE.cols * this.GEM_SIZE;
                 const newPositions = [];
                 
-                // Calculate total grid movement
                 let rawGridOffset = deltaX / this.GEM_SIZE;
                 let gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ? 
                     Math.round(rawGridOffset) : 
                     Math.floor(rawGridOffset);
                 
-                // Calculate how many complete wraps have occurred
                 let completeWraps = Math.floor(Math.abs(gridOffset) / this.GRID_SIZE.cols);
                 let effectiveOffset = gridOffset % this.GRID_SIZE.cols;
                 
-                // Get the remainder for smooth movement
                 let remainder = deltaX - (gridOffset * this.GEM_SIZE);
                 
                 for (let i = 0; i < this.draggingSprites.length; i++) {
                     const startPos = this.dragStartPositions[i];
                     
-                    // Calculate new grid position including wraps
                     let newGridX = startPos.gridX + effectiveOffset;
                     if (newGridX < 0) newGridX += this.GRID_SIZE.cols;
                     newGridX = newGridX % this.GRID_SIZE.cols;
                     
-                    // Calculate screen position
                     let baseX = this.BOARD_OFFSET.x + (newGridX * this.GEM_SIZE) + this.GEM_SIZE / 2;
                     let newX = baseX + remainder;
                     
@@ -190,28 +233,23 @@ export class Game extends Phaser.Scene {
                 const totalHeight = this.GRID_SIZE.rows * this.GEM_SIZE;
                 const newPositions = [];
                 
-                // Calculate total grid movement
                 let rawGridOffset = deltaY / this.GEM_SIZE;
                 let gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ? 
                     Math.round(rawGridOffset) : 
                     Math.floor(rawGridOffset);
                 
-                // Calculate how many complete wraps have occurred
                 let completeWraps = Math.floor(Math.abs(gridOffset) / this.GRID_SIZE.rows);
                 let effectiveOffset = gridOffset % this.GRID_SIZE.rows;
                 
-                // Get the remainder for smooth movement
                 let remainder = deltaY - (gridOffset * this.GEM_SIZE);
                 
                 for (let i = 0; i < this.draggingSprites.length; i++) {
                     const startPos = this.dragStartPositions[i];
                     
-                    // Calculate new grid position including wraps
                     let newGridY = startPos.gridY + effectiveOffset;
                     if (newGridY < 0) newGridY += this.GRID_SIZE.rows;
                     newGridY = newGridY % this.GRID_SIZE.rows;
                     
-                    // Calculate screen position
                     let baseY = this.BOARD_OFFSET.y + (newGridY * this.GEM_SIZE) + this.GEM_SIZE / 2;
                     let newY = baseY + remainder;
                     
@@ -238,7 +276,7 @@ export class Game extends Phaser.Scene {
             } else if (this.dragDirection === 'col') {
                 const amount = Math.round(deltaY / this.GEM_SIZE);
                 if (amount !== 0) {
-                    moveAction = new MoveAction('col', this.dragStartX, -amount); // Negative because of coordinate system
+                    moveAction = new MoveAction('col', this.dragStartX, -amount);
                 }
             }
 
@@ -246,7 +284,6 @@ export class Game extends Phaser.Scene {
                 this.canMove = false;
                 this.applyMove(moveAction);
             } else {
-                // No move, snap back to original positions
                 this.snapBack();
             }
 
@@ -259,20 +296,17 @@ export class Game extends Phaser.Scene {
     }
 
     applyMove(moveAction) {
-        // Apply the move to the backend puzzle
         const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([moveAction]);
 
-        // **Corrected Order:** Update frontend *after* backend processing
         this.time.delayedCall(300, () => {
             if (!explodeAndReplacePhase.isNothingToDo()) {
                 this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements);
             } else {
                 this.canMove = true;
-                this.updateGemsFromPuzzleState(); // Synchronize frontend after move (no matches)
+                this.updateGemsFromPuzzleState();
             }
         });
     }
-
 
     updateGemsFromPuzzleState() {
         for (let x = 0; x < this.GRID_SIZE.cols; x++) {
@@ -281,13 +315,11 @@ export class Game extends Phaser.Scene {
                 let sprite = this.gemsSprites[x][y];
 
                 if (sprite) {
-                    // Update the sprite's texture if the gem type has changed
                     if (sprite.getData('gemType') !== gemData.gemType) {
                         sprite.setTexture(`${gemData.gemType}_gem_${0}`);
                         sprite.setData('gemType', gemData.gemType);
                     }
 
-                    // Update position
                     const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
                     const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
                     sprite.gridX = x;
@@ -303,12 +335,12 @@ export class Game extends Phaser.Scene {
                         });
                     }
                 } else if (gemData) {
-                    // Create a new sprite if one doesn't exist and there's a gem in puzzleState
                     const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
                     const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
                     sprite = this.add.sprite(xPos, yPos, `${gemData.gemType}_gem_${0}`);
                     sprite.setInteractive();
                     this.input.setDraggable(sprite);
+                    sprite.setDisplaySize(this.GEM_SIZE * 0.9, this.GEM_SIZE * 0.9);
                     sprite.gridX = x;
                     sprite.gridY = y;
                     sprite.setData('gemType', gemData.gemType);
@@ -319,7 +351,6 @@ export class Game extends Phaser.Scene {
     }
 
     snapBack() {
-        // Tween the dragging sprites back to their original positions
         for (let i = 0; i < this.draggingSprites.length; i++) {
             const sprite = this.draggingSprites[i];
             const startPosition = this.dragCurrentPositions[i];
@@ -327,7 +358,6 @@ export class Game extends Phaser.Scene {
             if (this.dragDirection === 'row') {
                 const xPos = this.dragStartPositions[i].x;
                 let delta = xPos - startPosition;
-                // Handle wrapping
                 if (Math.abs(delta) > (this.GRID_SIZE.cols * this.GEM_SIZE) / 2) {
                     delta = delta > 0 ? delta - this.GRID_SIZE.cols * this.GEM_SIZE : delta + this.GRID_SIZE.cols * this.GEM_SIZE;
                 }
@@ -340,7 +370,6 @@ export class Game extends Phaser.Scene {
             } else if (this.dragDirection === 'col') {
                 const yPos = this.dragStartPositions[i].y;
                 let delta = yPos - startPosition;
-                // Handle wrapping
                 if (Math.abs(delta) > (this.GRID_SIZE.rows * this.GEM_SIZE) / 2) {
                     delta = delta > 0 ? delta - this.GRID_SIZE.rows * this.GEM_SIZE : delta + this.GRID_SIZE.rows * this.GEM_SIZE;
                 }
@@ -355,7 +384,6 @@ export class Game extends Phaser.Scene {
     }
 
     handleMatches(matches, replacements) {
-        // Simple fade out for matched gems
         const promises = [];
         
         for (let match of matches) {
@@ -377,7 +405,6 @@ export class Game extends Phaser.Scene {
             }
         }
 
-        // Wait for all fade outs to complete
         this.tweens.add({
             targets: {},
             duration: 250,
@@ -401,6 +428,7 @@ export class Game extends Phaser.Scene {
                     const yPos = this.BOARD_OFFSET.y - ((i + 1) * this.GEM_SIZE);
                     const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
                     sprite.setInteractive();
+                    sprite.setDisplaySize(this.GEM_SIZE * 0.9, this.GEM_SIZE * 0.9);
                     sprite.gridX = x;
                     sprite.gridY = -(gemTypes.length - i);
                     sprite.setData('gemType', gemType);
@@ -408,7 +436,6 @@ export class Game extends Phaser.Scene {
                 }
             }
 
-            // Update gridY and create fall tweens
             for (let y = 0; y < newColumnSprites.length; y++) {
                 const sprite = newColumnSprites[y];
                 sprite.gridY = y;
@@ -430,7 +457,6 @@ export class Game extends Phaser.Scene {
             this.gemsSprites[x] = newColumnSprites;
         }
 
-        // Wait for all falls to complete
         this.tweens.add({
             targets: {},
             duration: 450,

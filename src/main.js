@@ -8,13 +8,35 @@ import { Preloader } from './scenes/Preloader';
 //  https://newdocs.phaser.io/docs/3.70.0/Phaser.Types.Core.GameConfig
 const config = {
     type: Phaser.AUTO,
-    width: 1024,
-    height: 768,
     parent: 'game-container',
     backgroundColor: '#028af8',
     scale: {
-        mode: Phaser.Scale.FIT,
-        autoCenter: Phaser.Scale.CENTER_BOTH
+        mode: Phaser.Scale.RESIZE,
+        parent: 'game-container',
+        width: '100%',
+        height: '100%',
+        autoCenter: Phaser.Scale.CENTER_BOTH,
+        autoRound: true,
+        orientation: Phaser.Scale.PORTRAIT
+    },
+    physics: {
+        default: 'arcade',
+        arcade: {
+            gravity: { y: 0 },
+            debug: false
+        }
+    },
+    input: {
+        activePointers: 2,
+        touch: {
+            capture: true,
+            dragThreshold: 5
+        }
+    },
+    render: {
+        antialias: false,
+        pixelArt: false,
+        roundPixels: true
     },
     scene: [
         Boot,
