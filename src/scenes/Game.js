@@ -171,197 +171,137 @@ export class Game extends Phaser.Scene {
     }
 
     onPointerMove(pointer) {
-        if (this.isDragging && this.canMove) {
-            const deltaX = pointer.x - this.dragStartPointerX;
-            const deltaY = pointer.y - this.dragStartPointerY;
+        if (!this.isDragging || !this.canMove) return;
 
-            // Increase drag threshold for mobile
-            const dragThreshold = 10;
+        const deltaX = pointer.x - this.dragStartPointerX;
+        const deltaY = pointer.y - this.dragStartPointerY;
 
-            if (this.dragDirection === null) {
-                if (Math.abs(deltaX) > Math.abs(deltaY) && Math.abs(deltaX) > dragThreshold) {
-                    this.dragDirection = 'row';
-                    const y = this.dragStartY;
-                    
-                    for (let x = 0; x < this.GRID_SIZE.cols; x++) {
-                        const sprite = this.gemsSprites[x][y];
-                        this.draggingSprites.push(sprite);
-                        this.dragStartPositions.push({
-                            x: sprite.x,
-                            gridX: x,
-                            y: sprite.y,
-                            gridY: y
-                        });
-                    }
-                } else if (Math.abs(deltaY) > dragThreshold) {
-                    this.dragDirection = 'col';
-                    const x = this.dragStartX;
-                    
-                    for (let y = 0; y < this.GRID_SIZE.rows; y++) {
-                        const sprite = this.gemsSprites[x][y];
-                        this.draggingSprites.push(sprite);
-                        this.dragStartPositions.push({
-                            x: sprite.x,
-                            gridX: x,
-                            y: sprite.y,
-                            gridY: y
-                        });
-                    }
-                }
-            }
-
+        if (!this.dragDirection && Math.max(Math.abs(deltaX), Math.abs(deltaY)) > 10) {
+            // Initial setup remains same
+            this.dragDirection = Math.abs(deltaX) > Math.abs(deltaY) ? 'row' : 'col';
+            
             if (this.dragDirection === 'row') {
-                const totalWidth = this.GRID_SIZE.cols * this.GEM_SIZE;
-                const newPositions = [];
-                
-                // Calculate grid-based movement
-                const rawGridOffset = deltaX / this.GEM_SIZE;
-                const gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ?
-                    Math.round(rawGridOffset) :
-                    Math.floor(rawGridOffset);
-                
-                // Handle wrap-around
-                const effectiveOffset = ((gridOffset % this.GRID_SIZE.cols) + this.GRID_SIZE.cols) % this.GRID_SIZE.cols;
-                
-                // Calculate sub-grid movement
-                let remainder = deltaX - (gridOffset * this.GEM_SIZE);
-                
-                for (let i = 0; i < this.draggingSprites.length; i++) {
-                    const startPos = this.dragStartPositions[i];
-                    
-                    let newGridX = startPos.gridX + effectiveOffset;
-                    if (newGridX < 0) newGridX += this.GRID_SIZE.cols;
-                    newGridX = newGridX % this.GRID_SIZE.cols;
-                    
-                    const baseX = Math.round(this.BOARD_OFFSET.x + (newGridX * this.GEM_SIZE) + this.GEM_SIZE / 2);
-                    // Snap to grid positions during drag
-                    if (Math.abs(remainder) < this.GEM_SIZE * 0.2) {
-                        remainder = 0;
-                    }
-                    const newX = Math.round(baseX + remainder);
-                    
-                    if (this.draggingSprites[i]) {
-                        this.draggingSprites[i].x = newX;
-                        newPositions.push(newX);
-                        // Update grid position
-                        this.draggingSprites[i].gridX = newGridX;
-                    }
+                for (let x = 0; x < this.GRID_SIZE.cols; x++) {
+                    const sprite = this.gemsSprites[x][this.dragStartY];
+                    this.draggingSprites.push(sprite);
+                    this.dragStartPositions[x] = {
+                        x: sprite.x,
+                        y: sprite.y,
+                        gridX: x
+                    };
                 }
-                this.dragCurrentPositions = newPositions;
-
-            } else if (this.dragDirection === 'col') {
-                const totalHeight = this.GRID_SIZE.rows * this.GEM_SIZE;
-                const newPositions = [];
-                
-                // Calculate grid-based movement
-                const rawGridOffset = deltaY / this.GEM_SIZE;
-                const gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ?
-                    Math.round(rawGridOffset) :
-                    Math.floor(rawGridOffset);
-                
-                // Handle wrap-around
-                const effectiveOffset = ((gridOffset % this.GRID_SIZE.rows) + this.GRID_SIZE.rows) % this.GRID_SIZE.rows;
-                
-                // Calculate sub-grid movement
-                let remainder = deltaY - (gridOffset * this.GEM_SIZE);
-                
-                for (let i = 0; i < this.draggingSprites.length; i++) {
-                    const startPos = this.dragStartPositions[i];
-                    
-                    let newGridY = startPos.gridY + effectiveOffset;
-                    if (newGridY < 0) newGridY += this.GRID_SIZE.rows;
-                    newGridY = newGridY % this.GRID_SIZE.rows;
-                    
-                    const baseY = Math.round(this.BOARD_OFFSET.y + (newGridY * this.GEM_SIZE) + this.GEM_SIZE / 2);
-                    // Snap to grid positions during drag
-                    if (Math.abs(remainder) < this.GEM_SIZE * 0.2) {
-                        remainder = 0;
-                    }
-                    const newY = Math.round(baseY + remainder);
-                    
-                    if (this.draggingSprites[i]) {
-                        this.draggingSprites[i].y = newY;
-                        newPositions.push(newY);
-                        // Update grid position
-                        this.draggingSprites[i].gridY = newGridY;
-                    }
+            } else {
+                for (let y = 0; y < this.GRID_SIZE.rows; y++) {
+                    const sprite = this.gemsSprites[this.dragStartX][y];
+                    this.draggingSprites.push(sprite);
+                    this.dragStartPositions[y] = {
+                        x: sprite.x,
+                        y: sprite.y,
+                        gridY: y
+                    };
                 }
-                this.dragCurrentPositions = newPositions;
             }
+        }
+
+        if (this.dragDirection === 'row') {
+            const width = this.GRID_SIZE.cols * this.GEM_SIZE;
+            this.draggingSprites.forEach((sprite, i) => {
+                let offset = deltaX;
+                
+                // Ensure proper wrapping even at edges
+                let newX = this.dragStartPositions[i].x + offset;
+                const rightEdge = this.BOARD_OFFSET.x + width;
+                
+                if (newX < this.BOARD_OFFSET.x - this.GEM_SIZE/2) {
+                    while (newX < this.BOARD_OFFSET.x - this.GEM_SIZE/2) {
+                        newX += width;
+                    }
+                } else if (newX > rightEdge + this.GEM_SIZE/2) {
+                    while (newX > rightEdge + this.GEM_SIZE/2) {
+                        newX -= width;
+                    }
+                }
+                
+                sprite.x = Math.round(newX);
+
+                // Remove any existing tweens
+                if (this.tweens.isTweening(sprite)) {
+                    this.tweens.remove(sprite);
+                }
+            });
+        } else if (this.dragDirection === 'col') {
+            const height = this.GRID_SIZE.rows * this.GEM_SIZE;
+            this.draggingSprites.forEach((sprite, i) => {
+                let offset = deltaY;
+                let newY = this.dragStartPositions[i].y + offset;
+                const bottomEdge = this.BOARD_OFFSET.y + height;
+                
+                // Mirror the row wrapping logic for columns
+                if (newY < this.BOARD_OFFSET.y - this.GEM_SIZE/2) {
+                    while (newY < this.BOARD_OFFSET.y - this.GEM_SIZE/2) {
+                        newY += height;
+                    }
+                } else if (newY > bottomEdge + this.GEM_SIZE/2) {
+                    while (newY > bottomEdge + this.GEM_SIZE/2) {
+                        newY -= height;
+                    }
+                }
+                
+                sprite.y = Math.round(newY);
+
+                // Add the tweening
+                if (this.tweens.isTweening(sprite)) {
+                    this.tweens.remove(sprite);
+                }
+            });
         }
     }
 
     onPointerUp(pointer) {
-        if (this.isDragging && this.canMove) {
-            const deltaX = pointer.x - this.dragStartPointerX;
-            const deltaY = pointer.y - this.dragStartPointerY;
+        if (!this.isDragging || !this.canMove) return;
 
-            let moveAction = null;
+        const deltaX = pointer.x - this.dragStartPointerX;
+        const deltaY = pointer.y - this.dragStartPointerY;
+        const cellsMoved = this.dragDirection === 'row' ? deltaX / this.GEM_SIZE : deltaY / this.GEM_SIZE;
 
-            if (this.dragDirection === 'row' && this.draggingSprites.length > 0) {
-                // Calculate amount based on actual grid position change
-                const firstSprite = this.draggingSprites[0];
-                const startGridX = this.dragStartPositions[0].gridX;
-                const currentGridX = firstSprite.gridX;
-                const amount = currentGridX - startGridX;
-                
-                // Wrap around handling
-                if (amount !== 0) {
-                    let wrappedAmount = amount;
-                    if (Math.abs(amount) > this.GRID_SIZE.cols / 2) {
-                        wrappedAmount = amount > 0 ?
-                            amount - this.GRID_SIZE.cols :
-                            amount + this.GRID_SIZE.cols;
-                    }
-                    moveAction = new MoveAction('row', this.dragStartY, wrappedAmount);
+        if (Math.abs(cellsMoved) >= 0.5) {
+            const amount = this.dragDirection === 'row' ?
+                Math.round(deltaX / this.GEM_SIZE) :
+                -Math.round(deltaY / this.GEM_SIZE);
+            const index = this.dragDirection === 'row' ? this.dragStartY : this.dragStartX;
+            
+            // First snap to grid
+            this.draggingSprites.forEach((sprite, i) => {
+                if (this.dragDirection === 'row') {
+                    const gridX = Math.round((sprite.x - this.BOARD_OFFSET.x) / this.GEM_SIZE);
+                    sprite.x = this.BOARD_OFFSET.x + gridX * this.GEM_SIZE + this.GEM_SIZE/2;
+                } else {
+                    const gridY = Math.round((sprite.y - this.BOARD_OFFSET.y) / this.GEM_SIZE);
+                    sprite.y = this.BOARD_OFFSET.y + gridY * this.GEM_SIZE + this.GEM_SIZE/2;
                 }
-            } else if (this.dragDirection === 'col' && this.draggingSprites.length > 0) {
-                // Calculate amount based on actual grid position change
-                const firstSprite = this.draggingSprites[0];
-                const startGridY = this.dragStartPositions[0].gridY;
-                const currentGridY = firstSprite.gridY;
-                const amount = currentGridY - startGridY;
-                
-                // Wrap around handling
-                if (amount !== 0) {
-                    let wrappedAmount = amount;
-                    if (Math.abs(amount) > this.GRID_SIZE.rows / 2) {
-                        wrappedAmount = amount > 0 ?
-                            amount - this.GRID_SIZE.rows :
-                            amount + this.GRID_SIZE.rows;
-                    }
-                    moveAction = new MoveAction('col', this.dragStartX, -wrappedAmount);
-                }
-            }
+            });
 
-            if (moveAction) {
-                this.canMove = false;
-                // Store current positions before applying move
-                const currentPositions = this.draggingSprites.map(sprite => ({
-                    x: Math.round(sprite.x),
-                    y: Math.round(sprite.y)
-                }));
-
-                // Update backend state
-                this.backendPuzzle.applyMoveToGrid(this.backendPuzzle.puzzleState, moveAction);
-
-                // Update sprite positions to match current drag positions
-                for (let i = 0; i < this.draggingSprites.length; i++) {
-                    const sprite = this.draggingSprites[i];
-                    sprite.x = Math.round(currentPositions[i].x);
-                    sprite.y = Math.round(currentPositions[i].y);
-                }
-
-                this.applyMove(moveAction).then(() => {
-                    this.clearDragState();
+            this.canMove = false;
+            this.applyMove(new MoveAction(this.dragDirection, index, amount));
+        } else {
+            // Return to starting positions with tween
+            this.draggingSprites.forEach((sprite, i) => {
+                const startPos = this.dragStartPositions[i];
+                this.tweens.add({
+                    targets: sprite,
+                    x: Math.round(startPos.x),
+                    y: Math.round(startPos.y),
+                    duration: 150,
+                    ease: 'Back.easeOut'
                 });
-            } else {
-                // No valid move, snap back
-                this.snapBack().then(() => {
-                    this.clearDragState();
-                });
-            }
+            });
         }
+
+        this.isDragging = false;
+        this.dragDirection = null;
+        this.draggingSprites = [];
+        this.dragStartPositions = [];
+        this.dragCurrentPositions = [];
     }
 
     applyMove(moveAction) {
@@ -439,7 +379,7 @@ export class Game extends Phaser.Scene {
         });
     }
 
-    clearDragState() {
+    cleanupDrag() {
         this.isDragging = false;
         this.dragDirection = null;
         this.draggingSprites = [];
