@@ -88,14 +88,20 @@ export class Game extends Phaser.Scene {
         // Recalculate board dimensions
         this.calculateBoardDimensions();
         
-        // Update all gem positions
+        // Update all gem positions with tweens
         for (let x = 0; x < this.GRID_SIZE.cols; x++) {
             for (let y = 0; y < this.GRID_SIZE.rows; y++) {
                 const sprite = this.gemsSprites[x][y];
                 if (sprite) {
-                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    sprite.setPosition(xPos, yPos);
+                    const xPos = Math.round(this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2);
+                    const yPos = Math.round(this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2);
+                    this.tweens.add({
+                        targets: sprite,
+                        x: xPos,
+                        y: yPos,
+                        duration: 100,
+                        ease: 'Linear'
+                    });
                 }
             }
         }
@@ -119,8 +125,8 @@ export class Game extends Phaser.Scene {
                 const gem = this.backendPuzzle.puzzleState[x][y];
                 const gemType = gem.gemType;
 
-                const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
+                const xPos = Math.round(this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2);
+                const yPos = Math.round(this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2);
 
                 const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
                 sprite.setInteractive();
@@ -182,7 +188,9 @@ export class Game extends Phaser.Scene {
                         this.draggingSprites.push(sprite);
                         this.dragStartPositions.push({
                             x: sprite.x,
-                            gridX: x
+                            gridX: x,
+                            y: sprite.y,
+                            gridY: y
                         });
                     }
                 } else if (Math.abs(deltaY) > dragThreshold) {
@@ -193,6 +201,8 @@ export class Game extends Phaser.Scene {
                         const sprite = this.gemsSprites[x][y];
                         this.draggingSprites.push(sprite);
                         this.dragStartPositions.push({
+                            x: sprite.x,
+                            gridX: x,
                             y: sprite.y,
                             gridY: y
                         });
@@ -204,14 +214,16 @@ export class Game extends Phaser.Scene {
                 const totalWidth = this.GRID_SIZE.cols * this.GEM_SIZE;
                 const newPositions = [];
                 
-                let rawGridOffset = deltaX / this.GEM_SIZE;
-                let gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ? 
-                    Math.round(rawGridOffset) : 
+                // Calculate grid-based movement
+                const rawGridOffset = deltaX / this.GEM_SIZE;
+                const gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ?
+                    Math.round(rawGridOffset) :
                     Math.floor(rawGridOffset);
                 
-                let completeWraps = Math.floor(Math.abs(gridOffset) / this.GRID_SIZE.cols);
-                let effectiveOffset = gridOffset % this.GRID_SIZE.cols;
+                // Handle wrap-around
+                const effectiveOffset = ((gridOffset % this.GRID_SIZE.cols) + this.GRID_SIZE.cols) % this.GRID_SIZE.cols;
                 
+                // Calculate sub-grid movement
                 let remainder = deltaX - (gridOffset * this.GEM_SIZE);
                 
                 for (let i = 0; i < this.draggingSprites.length; i++) {
@@ -221,11 +233,19 @@ export class Game extends Phaser.Scene {
                     if (newGridX < 0) newGridX += this.GRID_SIZE.cols;
                     newGridX = newGridX % this.GRID_SIZE.cols;
                     
-                    let baseX = this.BOARD_OFFSET.x + (newGridX * this.GEM_SIZE) + this.GEM_SIZE / 2;
-                    let newX = baseX + remainder;
+                    const baseX = Math.round(this.BOARD_OFFSET.x + (newGridX * this.GEM_SIZE) + this.GEM_SIZE / 2);
+                    // Snap to grid positions during drag
+                    if (Math.abs(remainder) < this.GEM_SIZE * 0.2) {
+                        remainder = 0;
+                    }
+                    const newX = Math.round(baseX + remainder);
                     
-                    this.draggingSprites[i].x = newX;
-                    newPositions.push(newX);
+                    if (this.draggingSprites[i]) {
+                        this.draggingSprites[i].x = newX;
+                        newPositions.push(newX);
+                        // Update grid position
+                        this.draggingSprites[i].gridX = newGridX;
+                    }
                 }
                 this.dragCurrentPositions = newPositions;
 
@@ -233,14 +253,16 @@ export class Game extends Phaser.Scene {
                 const totalHeight = this.GRID_SIZE.rows * this.GEM_SIZE;
                 const newPositions = [];
                 
-                let rawGridOffset = deltaY / this.GEM_SIZE;
-                let gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ? 
-                    Math.round(rawGridOffset) : 
+                // Calculate grid-based movement
+                const rawGridOffset = deltaY / this.GEM_SIZE;
+                const gridOffset = Math.abs(rawGridOffset % 1) < 0.2 ?
+                    Math.round(rawGridOffset) :
                     Math.floor(rawGridOffset);
                 
-                let completeWraps = Math.floor(Math.abs(gridOffset) / this.GRID_SIZE.rows);
-                let effectiveOffset = gridOffset % this.GRID_SIZE.rows;
+                // Handle wrap-around
+                const effectiveOffset = ((gridOffset % this.GRID_SIZE.rows) + this.GRID_SIZE.rows) % this.GRID_SIZE.rows;
                 
+                // Calculate sub-grid movement
                 let remainder = deltaY - (gridOffset * this.GEM_SIZE);
                 
                 for (let i = 0; i < this.draggingSprites.length; i++) {
@@ -250,11 +272,19 @@ export class Game extends Phaser.Scene {
                     if (newGridY < 0) newGridY += this.GRID_SIZE.rows;
                     newGridY = newGridY % this.GRID_SIZE.rows;
                     
-                    let baseY = this.BOARD_OFFSET.y + (newGridY * this.GEM_SIZE) + this.GEM_SIZE / 2;
-                    let newY = baseY + remainder;
+                    const baseY = Math.round(this.BOARD_OFFSET.y + (newGridY * this.GEM_SIZE) + this.GEM_SIZE / 2);
+                    // Snap to grid positions during drag
+                    if (Math.abs(remainder) < this.GEM_SIZE * 0.2) {
+                        remainder = 0;
+                    }
+                    const newY = Math.round(baseY + remainder);
                     
-                    this.draggingSprites[i].y = newY;
-                    newPositions.push(newY);
+                    if (this.draggingSprites[i]) {
+                        this.draggingSprites[i].y = newY;
+                        newPositions.push(newY);
+                        // Update grid position
+                        this.draggingSprites[i].gridY = newGridY;
+                    }
                 }
                 this.dragCurrentPositions = newPositions;
             }
@@ -268,207 +298,319 @@ export class Game extends Phaser.Scene {
 
             let moveAction = null;
 
-            if (this.dragDirection === 'row') {
-                const amount = Math.round(deltaX / this.GEM_SIZE);
+            if (this.dragDirection === 'row' && this.draggingSprites.length > 0) {
+                // Calculate amount based on actual grid position change
+                const firstSprite = this.draggingSprites[0];
+                const startGridX = this.dragStartPositions[0].gridX;
+                const currentGridX = firstSprite.gridX;
+                const amount = currentGridX - startGridX;
+                
+                // Wrap around handling
                 if (amount !== 0) {
-                    moveAction = new MoveAction('row', this.dragStartY, amount);
+                    let wrappedAmount = amount;
+                    if (Math.abs(amount) > this.GRID_SIZE.cols / 2) {
+                        wrappedAmount = amount > 0 ?
+                            amount - this.GRID_SIZE.cols :
+                            amount + this.GRID_SIZE.cols;
+                    }
+                    moveAction = new MoveAction('row', this.dragStartY, wrappedAmount);
                 }
-            } else if (this.dragDirection === 'col') {
-                const amount = Math.round(deltaY / this.GEM_SIZE);
+            } else if (this.dragDirection === 'col' && this.draggingSprites.length > 0) {
+                // Calculate amount based on actual grid position change
+                const firstSprite = this.draggingSprites[0];
+                const startGridY = this.dragStartPositions[0].gridY;
+                const currentGridY = firstSprite.gridY;
+                const amount = currentGridY - startGridY;
+                
+                // Wrap around handling
                 if (amount !== 0) {
-                    moveAction = new MoveAction('col', this.dragStartX, -amount);
+                    let wrappedAmount = amount;
+                    if (Math.abs(amount) > this.GRID_SIZE.rows / 2) {
+                        wrappedAmount = amount > 0 ?
+                            amount - this.GRID_SIZE.rows :
+                            amount + this.GRID_SIZE.rows;
+                    }
+                    moveAction = new MoveAction('col', this.dragStartX, -wrappedAmount);
                 }
             }
 
             if (moveAction) {
                 this.canMove = false;
-                this.applyMove(moveAction);
-            } else {
-                this.snapBack();
-            }
+                // Store current positions before applying move
+                const currentPositions = this.draggingSprites.map(sprite => ({
+                    x: Math.round(sprite.x),
+                    y: Math.round(sprite.y)
+                }));
 
-            this.isDragging = false;
-            this.dragDirection = null;
-            this.draggingSprites = [];
-            this.dragStartPositions = [];
-            this.dragCurrentPositions = [];
+                // Update backend state
+                this.backendPuzzle.applyMoveToGrid(this.backendPuzzle.puzzleState, moveAction);
+
+                // Update sprite positions to match current drag positions
+                for (let i = 0; i < this.draggingSprites.length; i++) {
+                    const sprite = this.draggingSprites[i];
+                    sprite.x = Math.round(currentPositions[i].x);
+                    sprite.y = Math.round(currentPositions[i].y);
+                }
+
+                this.applyMove(moveAction).then(() => {
+                    this.clearDragState();
+                });
+            } else {
+                // No valid move, snap back
+                this.snapBack().then(() => {
+                    this.clearDragState();
+                });
+            }
         }
     }
 
     applyMove(moveAction) {
-        const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([moveAction]);
+        return new Promise((resolve) => {
+            // Get the next phase immediately but don't apply visual changes yet
+            const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([moveAction]);
 
-        this.time.delayedCall(300, () => {
-            if (!explodeAndReplacePhase.isNothingToDo()) {
-                this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements);
+            // Wait for any existing animations to complete
+            this.tweens.killAll();
+
+            const settlePromises = [];
+            let totalMoveAnimations = 0;
+
+            // Only animate non-dragging sprites
+            for (let x = 0; x < this.GRID_SIZE.cols; x++) {
+                for (let y = 0; y < this.GRID_SIZE.rows; y++) {
+                    const sprite = this.gemsSprites[x][y];
+                    if (sprite && !this.draggingSprites.includes(sprite)) {
+                        const xPos = Math.round(this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2);
+                        const yPos = Math.round(this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2);
+                        
+                        if (Math.abs(sprite.x - xPos) > 1 || Math.abs(sprite.y - yPos) > 1) {
+                            totalMoveAnimations++;
+                            settlePromises.push(new Promise((resolveSettle) => {
+                                this.tweens.add({
+                                    targets: sprite,
+                                    x: xPos,
+                                    y: yPos,
+                                    duration: 200,
+                                    ease: 'Back.easeOut',
+                                    onComplete: () => {
+                                        sprite.x = Math.round(xPos);
+                                        sprite.y = Math.round(yPos);
+                                        resolveSettle();
+                                    }
+                                });
+                            }));
+                        }
+                    }
+                }
+            }
+
+            // Update dragging sprites grid positions without animation
+            for (let i = 0; i < this.draggingSprites.length; i++) {
+                const sprite = this.draggingSprites[i];
+                sprite.x = Math.round(sprite.x);
+                sprite.y = Math.round(sprite.y);
+            }
+
+            if (totalMoveAnimations > 0) {
+                Promise.all(settlePromises).then(() => {
+                    if (!explodeAndReplacePhase.isNothingToDo()) {
+                        this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements)
+                            .then(() => {
+                                this.canMove = true;
+                                resolve();
+                            });
+                    } else {
+                        this.canMove = true;
+                        resolve();
+                    }
+                });
             } else {
-                this.canMove = true;
-                this.updateGemsFromPuzzleState();
+                if (!explodeAndReplacePhase.isNothingToDo()) {
+                    this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements)
+                        .then(() => {
+                            this.canMove = true;
+                            resolve();
+                        });
+                } else {
+                    this.canMove = true;
+                    resolve();
+                }
             }
         });
     }
 
-    updateGemsFromPuzzleState() {
-        for (let x = 0; x < this.GRID_SIZE.cols; x++) {
-            for (let y = 0; y < this.GRID_SIZE.rows; y++) {
-                const gemData = this.backendPuzzle.puzzleState[x][y];
-                let sprite = this.gemsSprites[x][y];
-
-                if (sprite) {
-                    if (sprite.getData('gemType') !== gemData.gemType) {
-                        sprite.setTexture(`${gemData.gemType}_gem_${0}`);
-                        sprite.setData('gemType', gemData.gemType);
-                    }
-
-                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    sprite.gridX = x;
-                    sprite.gridY = y;
-
-                    if (sprite.x !== xPos || sprite.y !== yPos) {
-                        this.tweens.add({
-                            targets: sprite,
-                            x: xPos,
-                            y: yPos,
-                            duration: 200,
-                            ease: 'Quad.easeOut'
-                        });
-                    }
-                } else if (gemData) {
-                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    sprite = this.add.sprite(xPos, yPos, `${gemData.gemType}_gem_${0}`);
-                    sprite.setInteractive();
-                    this.input.setDraggable(sprite);
-                    sprite.setDisplaySize(this.GEM_SIZE * 0.9, this.GEM_SIZE * 0.9);
-                    sprite.gridX = x;
-                    sprite.gridY = y;
-                    sprite.setData('gemType', gemData.gemType);
-                    this.gemsSprites[x][y] = sprite;
-                }
-            }
-        }
+    clearDragState() {
+        this.isDragging = false;
+        this.dragDirection = null;
+        this.draggingSprites = [];
+        this.dragStartPositions = [];
+        this.dragCurrentPositions = [];
     }
 
     snapBack() {
-        for (let i = 0; i < this.draggingSprites.length; i++) {
-            const sprite = this.draggingSprites[i];
-            const startPosition = this.dragCurrentPositions[i];
-
-            if (this.dragDirection === 'row') {
-                const xPos = this.dragStartPositions[i].x;
-                let delta = xPos - startPosition;
-                if (Math.abs(delta) > (this.GRID_SIZE.cols * this.GEM_SIZE) / 2) {
-                    delta = delta > 0 ? delta - this.GRID_SIZE.cols * this.GEM_SIZE : delta + this.GRID_SIZE.cols * this.GEM_SIZE;
-                }
-                this.tweens.add({
-                    targets: sprite,
-                    x: xPos,
-                    duration: 200,
-                    ease: 'Quad.easeOut'
-                });
-            } else if (this.dragDirection === 'col') {
-                const yPos = this.dragStartPositions[i].y;
-                let delta = yPos - startPosition;
-                if (Math.abs(delta) > (this.GRID_SIZE.rows * this.GEM_SIZE) / 2) {
-                    delta = delta > 0 ? delta - this.GRID_SIZE.rows * this.GEM_SIZE : delta + this.GRID_SIZE.rows * this.GEM_SIZE;
-                }
-                this.tweens.add({
-                    targets: sprite,
-                    y: yPos,
-                    duration: 200,
-                    ease: 'Quad.easeOut'
-                });
+        return new Promise(async (resolve) => {
+            const settlePromises = [];
+            
+            for (let i = 0; i < this.draggingSprites.length; i++) {
+                const sprite = this.draggingSprites[i];
+                const startPos = this.dragStartPositions[i];
+                
+                // Calculate target position based on original grid position
+                const targetX = Math.round(this.BOARD_OFFSET.x + startPos.gridX * this.GEM_SIZE + this.GEM_SIZE / 2);
+                const targetY = Math.round(this.BOARD_OFFSET.y + startPos.gridY * this.GEM_SIZE + this.GEM_SIZE / 2);
+                
+                // Reset grid position
+                sprite.gridX = startPos.gridX;
+                sprite.gridY = startPos.gridY;
+                
+                settlePromises.push(new Promise((resolveSettle) => {
+                    this.tweens.add({
+                        targets: sprite,
+                        x: targetX,
+                        y: targetY,
+                        duration: 200,
+                        ease: 'Back.easeOut',
+                        onComplete: () => {
+                            sprite.x = targetX;
+                            sprite.y = targetY;
+                            resolveSettle();
+                        }
+                    });
+                }));
             }
-        }
+            
+            await Promise.all(settlePromises);
+            resolve();
+        });
     }
 
     handleMatches(matches, replacements) {
-        const promises = [];
-        
-        for (let match of matches) {
-            for (let [x, y] of match) {
-                const sprite = this.gemsSprites[x][y];
-                if (sprite) {
-                    const tween = this.tweens.add({
-                        targets: sprite,
-                        alpha: 0,
-                        duration: 200,
-                        ease: 'Quad.easeOut',
-                        onComplete: () => {
-                            sprite.destroy();
-                        }
-                    });
-                    promises.push(tween);
-                    this.gemsSprites[x][y] = null;
+        return new Promise((resolve) => {
+            const destroyPromises = [];
+            
+            // Collect all sprites to destroy first
+            for (let match of matches) {
+                for (let [x, y] of match) {
+                    const sprite = this.gemsSprites[x][y];
+                    if (sprite) {
+                        destroyPromises.push(new Promise((resolveDestroy) => {
+                            this.tweens.add({
+                                targets: sprite,
+                                alpha: 0,
+                                scale: 0.8,
+                                duration: 200,
+                                ease: 'Back.easeOut',
+                                onComplete: () => {
+                                    sprite.destroy();
+                                    this.gemsSprites[x][y] = null;
+                                    resolveDestroy();
+                                }
+                            });
+                        }));
+                    }
                 }
             }
-        }
-
-        this.tweens.add({
-            targets: {},
-            duration: 250,
-            onComplete: () => {
-                this.makeGemsFall(replacements);
+            
+            // If no sprites to destroy, move directly to falling
+            if (destroyPromises.length === 0) {
+                this.makeGemsFall(replacements).then(resolve);
+                return;
             }
+
+            // Wait for all destroy animations to complete
+            Promise.all(destroyPromises).then(() => {
+                this.makeGemsFall(replacements).then(resolve);
+            });
         });
     }
 
     makeGemsFall(replacements) {
-        for (let x = 0; x < this.GRID_SIZE.cols; x++) {
-            const columnSprites = this.gemsSprites[x];
-            let newColumnSprites = columnSprites.filter(sprite => sprite !== null);
+        return new Promise((resolve) => {
+            const fallPromises = [];
+            
+            // First pass: Create new gems and prepare columns
+            for (let x = 0; x < this.GRID_SIZE.cols; x++) {
+                const columnSprites = this.gemsSprites[x];
+                let newColumnSprites = columnSprites.filter(sprite => sprite !== null);
 
-            const replacementsForCol = replacements.find(r => r[0] === x);
-            if (replacementsForCol) {
-                const gemTypes = replacementsForCol[1];
-                for (let i = 0; i < gemTypes.length; i++) {
-                    const gemType = gemTypes[i];
-                    const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                    const yPos = this.BOARD_OFFSET.y - ((i + 1) * this.GEM_SIZE);
-                    const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
-                    sprite.setInteractive();
-                    sprite.setDisplaySize(this.GEM_SIZE * 0.9, this.GEM_SIZE * 0.9);
+                const replacementsForCol = replacements.find(r => r[0] === x);
+                if (replacementsForCol) {
+                    const gemTypes = replacementsForCol[1];
+                    for (let i = 0; i < gemTypes.length; i++) {
+                        const gemType = gemTypes[i];
+                        const xPos = Math.round(this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2);
+                        const yPos = Math.round(this.BOARD_OFFSET.y - ((i + 1) * this.GEM_SIZE));
+                        const sprite = this.add.sprite(xPos, yPos, `${gemType}_gem_${0}`);
+                        
+                        // Ensure initial position is rounded
+                        sprite.x = Math.round(xPos);
+                        sprite.y = Math.round(yPos);
+                        
+                        sprite.setInteractive();
+                        this.input.setDraggable(sprite);
+                        sprite.setDisplaySize(this.GEM_SIZE * 0.9, this.GEM_SIZE * 0.9);
+                        
+                        // Set initial grid position for new gem
+                        const initialGridY = -(gemTypes.length - i);
+                        sprite.gridX = x;
+                        sprite.gridY = initialGridY;
+                        sprite.setData('gemType', gemType);
+                        sprite.alpha = 0;
+                        newColumnSprites.unshift(sprite);
+                    }
+                }
+
+                this.gemsSprites[x] = newColumnSprites;
+
+                // Second pass: Animate all gems in this column
+                for (let y = 0; y < newColumnSprites.length; y++) {
+                    const sprite = newColumnSprites[y];
+                    sprite.gridY = y;
+                    const xPos = Math.round(this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2);
+                    const yPos = Math.round(this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2);
+
+                    const fallDistance = Math.abs(sprite.y - yPos);
+                    const duration = Math.min(200 + (fallDistance / this.GEM_SIZE * 30), 400);
+
+                    // Update grid position before animation
                     sprite.gridX = x;
-                    sprite.gridY = -(gemTypes.length - i);
-                    sprite.setData('gemType', gemType);
-                    newColumnSprites.unshift(sprite);
+                    sprite.gridY = y;
+                    
+                    fallPromises.push(new Promise((resolveFall) => {
+                        // Ensure current position is rounded
+                        sprite.x = Math.round(sprite.x);
+                        sprite.y = Math.round(sprite.y);
+                        
+                        this.tweens.add({
+                            targets: sprite,
+                            x: xPos,
+                            y: yPos,
+                            alpha: 1,
+                            duration: duration,
+                            ease: 'Back.easeOut',
+                            onComplete: () => {
+                                // Ensure final position is rounded and grid position is set
+                                sprite.x = Math.round(xPos);
+                                sprite.y = Math.round(yPos);
+                                sprite.gridX = x;
+                                sprite.gridY = y;
+                                resolveFall();
+                            }
+                        });
+                    }));
                 }
             }
 
-            for (let y = 0; y < newColumnSprites.length; y++) {
-                const sprite = newColumnSprites[y];
-                sprite.gridY = y;
-                const xPos = this.BOARD_OFFSET.x + x * this.GEM_SIZE + this.GEM_SIZE / 2;
-                const yPos = this.BOARD_OFFSET.y + y * this.GEM_SIZE + this.GEM_SIZE / 2;
-                
-                const fallDistance = Math.abs(sprite.y - yPos);
-                const duration = Math.min(200 + (fallDistance / this.GEM_SIZE * 30), 400);
-                
-                this.tweens.add({
-                    targets: sprite,
-                    x: xPos,
-                    y: yPos,
-                    duration: duration,
-                    ease: 'Quad.easeIn'
-                });
-            }
-
-            this.gemsSprites[x] = newColumnSprites;
-        }
-
-        this.tweens.add({
-            targets: {},
-            duration: 450,
-            onComplete: () => {
+            // Wait for all fall animations to complete
+            Promise.all(fallPromises).then(() => {
                 const explodeAndReplacePhase = this.backendPuzzle.getNextExplodeAndReplacePhase([]);
                 if (!explodeAndReplacePhase.isNothingToDo()) {
-                    this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements);
+                    this.handleMatches(explodeAndReplacePhase.matches, explodeAndReplacePhase.replacements)
+                        .then(resolve);
                 } else {
-                    this.canMove = true;
-                    this.updateGemsFromPuzzleState();
+                    resolve();
                 }
-            }
+            });
         });
     }
 }
